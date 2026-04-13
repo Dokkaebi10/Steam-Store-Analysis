@@ -1,0 +1,20 @@
+# Ignore environment variables and data files
+.env
+
+# Ignore data directory
+/data
+
+# Ignore virtual environment directory
+venv/
+
+# Python cache (auto-generated, not needed in repo)
+__pycache__/
+*.pyc
+*.pyo
+
+# VSCode machine-specific settings
+.vscode/
+
+# OS junk
+.DS_Store
+Thumbs.db
