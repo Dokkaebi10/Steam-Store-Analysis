@@ -16,3 +16,16 @@ GROUP BY tag_name
 HAVING COUNT(DISTINCT g.appid) >= 10
 ORDER BY avg_playtime_hours DESC
 LIMIT 20;
+
+-- Games by a specific developer
+SELECT name, developers
+FROM games
+WHERE developers ? 'Valve';
+
+-- Count games per developer (unnested)
+SELECT 
+    jsonb_array_elements_text(developers) AS developer,
+    COUNT(*)                              AS game_count
+FROM games
+GROUP BY developer
+ORDER BY game_count DESC;

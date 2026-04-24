@@ -77,12 +77,12 @@ for col in ["windows", "mac", "linux"]:
 df_raw = df.copy()
  
 # developers/publishers are arrays like ["minori"] — grab first element
-df["developer"] = df["developers"].apply(
-    lambda x: x[0] if isinstance(x, list) and len(x) > 0 else None
-)
-df["publisher"] = df["publishers"].apply(
-    lambda x: x[0] if isinstance(x, list) and len(x) > 0 else None
-)
+#df["developer"] = df["developers"].apply(
+#    lambda x: x[0] if isinstance(x, list) and len(x) > 0 else None
+#)
+#df["publisher"] = df["publishers"].apply(
+#    lambda x: x[0] if isinstance(x, list) and len(x) > 0 else None
+#)
  
 # Combine categories (full list) and tags (dict keys) into one deduplicated list
 # Deduplication is case-insensitive; first-seen casing is preserved
