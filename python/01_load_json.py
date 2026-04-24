@@ -37,8 +37,8 @@ print(f"Columns found: {list(df.columns)}")
 # copy() is used to avoid SettingWithCopyWarning when we later modify the DataFrame
 df = df[[
     "appid", "name", "release_date",
-    "price", "dlc_count", "detailed_description",
-    "short_description", "windows", "mac", "linux",
+    "price", "dlc_count",
+    "windows", "mac", "linux",
     "metacritic_score", "achievements", "recommendations",
     "developers", "publishers", "categories",
     "positive", "negative", "estimated_owners", "average_playtime_forever",
@@ -87,19 +87,19 @@ df_raw = df.copy()
 # Combine categories (full list) and tags (dict keys) into one deduplicated list
 # Deduplication is case-insensitive; first-seen casing is preserved
 def merge_genres_and_tags(row):
-    genres = row["categories"] if isinstance(row["categories"], list) else []
-    tag_keys = list(row["tags"].keys()) if isinstance(row["tags"], dict) else []
+    genres = row["categories"] if isinstance(row["categories"], list) else [] # categories are already a list of strings
+    tag_keys = list(row["tags"].keys()) if isinstance(row["tags"], dict) else [] # tags are a dict of {"tag_name": vote_count}, we want just the tag names
  
-    seen = {}
-    for item in genres + tag_keys:
-        item = item.strip().title()
-        if item and item.lower() not in seen:
+    seen = {} # to track seen items in a case-insensitive way, while preserving original casing
+    for item in genres + tag_keys: # combine genres and tag names into one list
+        item = item.strip().title() # normalize to title case and strip whitespace for better deduplication
+        if item and item.lower() not in seen: # check if we've already seen this item (case-insensitive)
             seen[item.lower()] = item  # store title-cased version
  
     return list(seen.values())
  
-df["genres_and_tags"] = df.apply(merge_genres_and_tags, axis=1)
-df.drop(columns=["categories", "tags"], inplace=True)
+df["genres_and_tags"] = df.apply(merge_genres_and_tags, axis=1) # create new column by applying the merge function to each row
+df.drop(columns=["categories"], inplace=True) # we no longer need the original categories column but keeping the tags column for the votes in the bridge table
  
 # remove junk rows: no names, test apps, zero engagement
 # ~ is bitwise NOT operator, used here to negate the condition (keep rows that do NOT match)
@@ -112,9 +112,10 @@ df = df[~(
     (df["negative"] == 0)
 )]
  
-print(f"Clean row count: {len(df)}")
+print(f"Clean row count: {len(df)}") # should be significantly less than the original count if junk rows were removed
  
 # rename to final column names
+# inplace=True modifies the DataFrame in place without needing to assign it back to df
 df.rename(columns={
     "price":    "price_usd",
     "positive": "positive_reviews",
@@ -122,22 +123,29 @@ df.rename(columns={
 }, inplace=True)
  
 # Ensure tags is always a dict before writing to JSONB
-#df["tags"] = df["tags"].apply(
-#    lambda x: x if isinstance(x, dict) else {}
-#)
+df["tags"] = df["tags"].apply(
+    lambda x: x if isinstance(x, dict) else {}
+)
  
-# ── write games table ─────────────────────────────────────────────
+# write games table
+# dtype specifies the data types for the SQL table columns; JSONB is used for the nested structures
+# if_exists="replace" means that if the "games" table already exists, it will be dropped and recreated with the new data
+# index=False means we don't want to write the DataFrame index as a separate column in the SQL table
 print("Writing games table...")
 df.to_sql("games", engine, if_exists="replace", index=False, dtype={
+    "tags":            JSONB,
     "developers":      JSONB,
     "publishers":      JSONB,
     "genres_and_tags": JSONB,
 })
 print(f"  games: {len(df)} rows")
  
-# ── build tags dimension + bridge table ───────────────────────────
+# build tags dimension + bridge table
+# We have a many-to-many relationship between games and tags: each game can have multiple tags, and each tag can apply to multiple games.
+# To model this in a relational database, we create a "tags" dimension table that lists each unique tag with a tag_id, and a "game_tags" bridge table that links appids to tag_ids along with the vote count for that tag.
+# This process involves "exploding" the tags dict for each game into multiple rows in the bridge table, one for each tag.
 print("Building tags tables...")
- 
+
 rows = []
 for _, row in df_raw.iterrows():
     tags = row.get("tags", {})
@@ -164,7 +172,7 @@ for _, row in df_raw.iterrows():
                 })
         except (json.JSONDecodeError, AttributeError):
             pass
- 
+
 df_bridge = pd.DataFrame(rows)
  
 if df_bridge.empty:
