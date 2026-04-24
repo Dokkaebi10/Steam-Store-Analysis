@@ -99,10 +99,11 @@ def merge_genres_and_tags(row):
     return list(seen.values())
  
 df["genres_and_tags"] = df.apply(merge_genres_and_tags, axis=1)
-df.drop(columns=["categories"], inplace=True)
-df.drop(columns=["tags"], inplace=True)
+df.drop(columns=["categories", "tags"], inplace=True)
  
-# remove junk rows: no name, test apps, zero engagement
+# remove junk rows: no names, test apps, zero engagement
+# ~ is bitwise NOT operator, used here to negate the condition (keep rows that do NOT match)
+# na=False in str.contains ensures that if name is NaN, it won't match the regex and thus won't be dropped by this filter
 df.dropna(subset=["name"], inplace=True)
 df = df[~df["name"].str.contains("test|valve test", case=False, na=False)]
 df = df[~(
@@ -121,14 +122,13 @@ df.rename(columns={
 }, inplace=True)
  
 # Ensure tags is always a dict before writing to JSONB
-df["tags"] = df["tags"].apply(
-    lambda x: x if isinstance(x, dict) else {}
-)
+#df["tags"] = df["tags"].apply(
+#    lambda x: x if isinstance(x, dict) else {}
+#)
  
 # ── write games table ─────────────────────────────────────────────
 print("Writing games table...")
 df.to_sql("games", engine, if_exists="replace", index=False, dtype={
-    "tags":            JSONB,
     "developers":      JSONB,
     "publishers":      JSONB,
     "genres_and_tags": JSONB,
