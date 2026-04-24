@@ -92,14 +92,15 @@ def merge_genres_and_tags(row):
  
     seen = {}
     for item in genres + tag_keys:
-        item = item.strip()
+        item = item.strip().title()
         if item and item.lower() not in seen:
-            seen[item.lower()] = item  # keep first-seen casing
+            seen[item.lower()] = item  # store title-cased version
  
     return list(seen.values())
  
 df["genres_and_tags"] = df.apply(merge_genres_and_tags, axis=1)
 df.drop(columns=["categories"], inplace=True)
+df.drop(columns=["tags"], inplace=True)
  
 # remove junk rows: no name, test apps, zero engagement
 df.dropna(subset=["name"], inplace=True)
