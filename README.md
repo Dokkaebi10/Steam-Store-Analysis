@@ -28,3 +28,25 @@ This Project is a way for me to strengthen my Python skills and apply my more ne
 
 ## Pipeline
 Python (ETL) → PostgreSQL (storage) → SQL Views (data prep) → Power BI (visualization)
+
+## Tables Schema
+games       game_tags (bridge)    tags
+─────       ──────────────────    ────
+appid  ──── appid                 tag_id
+name        tag_id ───────────── tag_name
+...         votes
+
+## Python Script
+Raw JSON (one big blob)
+        │
+        ▼
+   [Extract]  Load into DataFrame
+        │
+        ▼
+   [Transform] Clean types, filter junk, flatten lists
+        │
+        ▼
+   [Load] Write 3 tables to PostgreSQL:
+        ├── games      (one row per game)
+        ├── tags       (one row per unique tag)
+        └── game_tags  (bridge: game ↔ tag with vote weight)

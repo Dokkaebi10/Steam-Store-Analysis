@@ -35,13 +35,15 @@ print(f"Columns found: {list(df.columns)}")
  
 # Select only the columns we need
 # copy() is used to avoid SettingWithCopyWarning when we later modify the DataFrame
+# estimated_owners is a wide range string so we'll drop it for now to keep things simpler, but it could be cleaned and included in the future if desired
+# peak_ccu and metacritic_score are too variable and often zero, but we'll keep them for now as they can be useful for filtering out junk apps and analyzing engagement patterns
 df = df[[
     "appid", "name", "release_date",
     "price", "dlc_count",
     "windows", "mac", "linux",
     "metacritic_score", "achievements", "recommendations",
     "developers", "publishers", "categories",
-    "positive", "negative", "estimated_owners", "average_playtime_forever",
+    "positive", "negative", "average_playtime_forever",
     "median_playtime_forever", "peak_ccu", "tags"
 ]].copy()
  
@@ -146,21 +148,24 @@ print(f"  games: {len(df)} rows")
 # This process involves "exploding" the tags dict for each game into multiple rows in the bridge table, one for each tag.
 print("Building tags tables...")
 
-rows = []
-for _, row in df_raw.iterrows():
-    tags = row.get("tags", {})
+rows = [] # this will hold the exploded rows for the game_tags bridge table, with columns: appid, tag_name, votes
+for _, row in df_raw.iterrows(): # iterate over each row in the original raw DataFrame (before we flattened the tags). _ is the index (appid)
+    tags = row.get("tags", {}) # safely reads the tag column (defult to empty dict if missing)
  
     # Tags are a dict: {"Action": 1500, "Indie": 300, ...}
+    # .items() gives us pairs of (tag_name, vote_count) that we can iterate over
+    # .strip() removes any leading/trailing whitespace from the tag name, and we check if it's not empty before adding it to the rows list
     if isinstance(tags, dict):
         for tag_name, vote_count in tags.items():
             tag_name = tag_name.strip()
-            if tag_name:
+            if tag_name:    # only add non-empty tag names
                 rows.append({
                     "appid": row["appid"],
                     "tag_name": tag_name,
                     "votes": int(vote_count) if vote_count else 0
                 })
-    # Fallback: sometimes tags may arrive as a pre-parsed string
+    # Fallback: sometimes tags may arrive as a pre-parsed string: '{"Action": 1500}'
+    # We'll attempt to parse it as JSON, but if it fails, we'll just skip it (since we can't reliably extract tags from a malformed string)
     elif isinstance(tags, str):
         try:
             parsed = json.loads(tags)
@@ -173,6 +178,9 @@ for _, row in df_raw.iterrows():
         except (json.JSONDecodeError, AttributeError):
             pass
 
+# Convert the list of dicts into a DataFrame for easier manipulation and writing to SQL
+# df_bridge.empty will be True if there are no valid tags parsed, which could indicate an issue with the tags data in the JSON. 
+# In that case, we raise an error and show a sample of the raw tags values for debugging.
 df_bridge = pd.DataFrame(rows)
  
 if df_bridge.empty:
@@ -180,6 +188,7 @@ if df_bridge.empty:
     raise ValueError(f"No tags parsed. Sample tags values: {sample}")
  
 # unique tag names → tags dimension table
+# the index (which starts at 0) is promoted to a real column called tag_id, then + 1 shifts it to start at 1 instead of 0 (optional, but often better for IDs to start at 1) because some SQL tools and ORMs expect that convention
 df_tags = pd.DataFrame(
     df_bridge["tag_name"].unique(), columns=["tag_name"]
 )
@@ -187,14 +196,21 @@ df_tags.index.name = "tag_id"
 df_tags.reset_index(inplace=True)
 df_tags["tag_id"] = df_tags["tag_id"] + 1
  
+# write tags dimension table
+# This must happen before the bridge table because the bridge needs tag_id values that only exist after this write
 df_tags.to_sql("tags", engine, if_exists="replace", index=False)
 print(f"  tags: {len(df_tags)} rows")
  
 # merge to get tag_id into bridge, keep only valid appids
+# We merge the exploded tags DataFrame (df_bridge) with the tags dimension table (df_tags) on the tag_name to get the corresponding tag_id for each tag_name
+# drop_duplicates is used to ensure that if a game has the same tag multiple times (which shouldn't happen but we want to be safe), we only keep one row for that game-tag combination in the bridge table
+# valid is a set of appids that exist in the cleaned games DataFrame (df), which we use to filter the bridge table to only include valid game-tag relationships for games that made it through our cleaning process
 df_bridge = df_bridge.merge(df_tags, on="tag_name")[["appid", "tag_id", "votes"]]
 df_bridge.drop_duplicates(subset=["appid", "tag_id"], inplace=True)
 valid = set(df["appid"].tolist())
 df_bridge = df_bridge[df_bridge["appid"].isin(valid)]
- 
+
+# write bridge table
+# The bridge table "game_tags" will have columns: appid, tag_id, votes
 df_bridge.to_sql("game_tags", engine, if_exists="replace", index=False)
 print(f"  game_tags: {len(df_bridge)} rows")
