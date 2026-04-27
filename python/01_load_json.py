@@ -54,13 +54,12 @@ df["appid"] = pd.to_numeric(df["appid"], errors="coerce")
 df.dropna(subset=["appid"], inplace=True)
 df["appid"] = df["appid"].astype(int)
  
-# price: already in dollars — coerce bad values to null, and filter out negative prices and unrealistically high prices
+# price: already in dollars — coerce bad values to null
 df["price"] = pd.to_numeric(df["price"], errors="coerce")
-df.loc[df["price"] < 0, "price"] = None
-df.loc[df["price"] > 999, "price"] = None
  
 # integer columns: fill nulls with 0
-# Note: some of these may be better as nulls instead of zeros, but we'll keep it simple for now
+# Note: some of these may be better as nulls (eg. Metacritic score) instead of zeros, but we'll keep it simple for now
+# price is not filled with 0 because we want to distinguish between free games (price = 0) and games with missing/invalid price (price = null)
 int_cols = [
     "dlc_count", "metacritic_score",
     "achievements", "recommendations", "positive", "negative",
@@ -73,39 +72,10 @@ for col in int_cols:
 for col in ["windows", "mac", "linux"]:
     df[col] = df[col].astype(bool)
  
-# snapshot df before flattening list columns
-# df_raw preserves the full tags/developers/publishers lists
-# needed for the bridge table explosion below
-df_raw = df.copy()
- 
-# developers/publishers are arrays like ["minori"] — grab first element
-#df["developer"] = df["developers"].apply(
-#    lambda x: x[0] if isinstance(x, list) and len(x) > 0 else None
-#)
-#df["publisher"] = df["publishers"].apply(
-#    lambda x: x[0] if isinstance(x, list) and len(x) > 0 else None
-#)
- 
-# Combine categories (full list) and tags (dict keys) into one deduplicated list
-# Deduplication is case-insensitive; first-seen casing is preserved
-def merge_genres_and_tags(row):
-    genres = row["categories"] if isinstance(row["categories"], list) else [] # categories are already a list of strings
-    tag_keys = list(row["tags"].keys()) if isinstance(row["tags"], dict) else [] # tags are a dict of {"tag_name": vote_count}, we want just the tag names
- 
-    seen = {} # to track seen items in a case-insensitive way, while preserving original casing
-    for item in genres + tag_keys: # combine genres and tag names into one list
-        item = item.strip().title() # normalize to title case and strip whitespace for better deduplication
-        if item and item.lower() not in seen: # check if we've already seen this item (case-insensitive)
-            seen[item.lower()] = item  # store title-cased version
- 
-    return list(seen.values())
- 
-df["genres_and_tags"] = df.apply(merge_genres_and_tags, axis=1) # create new column by applying the merge function to each row
-df.drop(columns=["categories"], inplace=True) # we no longer need the original categories column but keeping the tags column for the votes in the bridge table
- 
 # remove junk rows: no names, test apps, zero engagement
 # ~ is bitwise NOT operator, used here to negate the condition (keep rows that do NOT match)
 # na=False in str.contains ensures that if name is NaN, it won't match the regex and thus won't be dropped by this filter
+# this is done in the python script to reduce the amount of junk data we write to Postgres, which can speed up the SQL cleaning steps later and reduce storage of clearly invalid entries
 df.dropna(subset=["name"], inplace=True)
 df = df[~df["name"].str.contains("test|valve test", case=False, na=False)]
 df = df[~(
@@ -116,6 +86,24 @@ df = df[~(
  
 print(f"Clean row count: {len(df)}") # should be significantly less than the original count if junk rows were removed
  
+# Combine categories (full list) and tags (dict keys) into one deduplicated list.
+# Only strip whitespace — do NOT apply .title() here: it mangles acronyms like
+# "RPG" → "Rpg" and "FPS" → "Fps". Steam tag names come from a controlled vocabulary so casing is already consistent.
+def merge_genres_and_tags(row):
+    genres = row["categories"] if isinstance(row["categories"], list) else [] # categories are already a list of strings
+    tag_keys = list(row["tags"].keys()) if isinstance(row["tags"], dict) else [] # tags are a dict of {"tag_name": vote_count}, we want just the tag names
+ 
+    seen = {} # to track seen items in a case-insensitive way, while preserving original casing
+    for item in genres + tag_keys: # combine genres and tag names into one list
+        item = item.strip() # strip whitespace for better deduplication
+        if item and item.lower() not in seen: # check if we've already seen this item (case-insensitive)
+            seen[item.lower()] = item  # store title-cased version
+ 
+    return list(seen.values())
+ 
+df["genres_and_tags"] = df.apply(merge_genres_and_tags, axis=1) # create new column by applying the merge function to each row
+df.drop(columns=["categories"], inplace=True) # we no longer need the original categories column but keeping the tags column for the votes in the bridge table
+
 # rename to final column names
 # inplace=True modifies the DataFrame in place without needing to assign it back to df
 df.rename(columns={
@@ -125,92 +113,68 @@ df.rename(columns={
 }, inplace=True)
  
 # Ensure tags is always a dict before writing to JSONB
-df["tags"] = df["tags"].apply(
-    lambda x: x if isinstance(x, dict) else {}
-)
+df["tags"] = df["tags"].apply(lambda x: x if isinstance(x, dict) else {})
  
-# write games table
-# dtype specifies the data types for the SQL table columns; JSONB is used for the nested structures
-# if_exists="replace" means that if the "games" table already exists, it will be dropped and recreated with the new data
-# index=False means we don't want to write the DataFrame index as a separate column in the SQL table
-print("Writing games table...")
-df.to_sql("games", engine, if_exists="replace", index=False, dtype={
-    "tags":            JSONB,
-    "developers":      JSONB,
-    "publishers":      JSONB,
-    "genres_and_tags": JSONB,
-})
-print(f"  games: {len(df)} rows")
- 
-# build tags dimension + bridge table
-# We have a many-to-many relationship between games and tags: each game can have multiple tags, and each tag can apply to multiple games.
-# To model this in a relational database, we create a "tags" dimension table that lists each unique tag with a tag_id, and a "game_tags" bridge table that links appids to tag_ids along with the vote count for that tag.
-# This process involves "exploding" the tags dict for each game into multiple rows in the bridge table, one for each tag.
+# ── Bridge table construction (vectorized, replaces iterrows loop) ───────────
+# Explode the tags dict for each game into one row per (appid, tag_name) pair.
+# This is significantly faster than iterrows() on large datasets.
 print("Building tags tables...")
-
-rows = [] # this will hold the exploded rows for the game_tags bridge table, with columns: appid, tag_name, votes
-for _, row in df_raw.iterrows(): # iterate over each row in the original raw DataFrame (before we flattened the tags). _ is the index (appid)
-    tags = row.get("tags", {}) # safely reads the tag column (defult to empty dict if missing)
  
-    # Tags are a dict: {"Action": 1500, "Indie": 300, ...}
-    # .items() gives us pairs of (tag_name, vote_count) that we can iterate over
-    # .strip() removes any leading/trailing whitespace from the tag name, and we check if it's not empty before adding it to the rows list
-    if isinstance(tags, dict):
-        for tag_name, vote_count in tags.items():
-            tag_name = tag_name.strip()
-            if tag_name:    # only add non-empty tag names
-                rows.append({
-                    "appid": row["appid"],
-                    "tag_name": tag_name,
-                    "votes": int(vote_count) if vote_count else 0
-                })
-    # Fallback: sometimes tags may arrive as a pre-parsed string: '{"Action": 1500}'
-    # We'll attempt to parse it as JSON, but if it fails, we'll just skip it (since we can't reliably extract tags from a malformed string)
-    elif isinstance(tags, str):
-        try:
-            parsed = json.loads(tags)
-            for tag_name, vote_count in parsed.items():
-                rows.append({
-                    "appid": row["appid"],
-                    "tag_name": tag_name.strip(),
-                    "votes": int(vote_count) if vote_count else 0
-                })
-        except (json.JSONDecodeError, AttributeError):
-            pass
-
-# Convert the list of dicts into a DataFrame for easier manipulation and writing to SQL
-# df_bridge.empty will be True if there are no valid tags parsed, which could indicate an issue with the tags data in the JSON. 
-# In that case, we raise an error and show a sample of the raw tags values for debugging.
-df_bridge = pd.DataFrame(rows)
+df_tags_only = df[["appid", "tags"]].loc[
+    df["tags"].apply(lambda x: isinstance(x, dict))
+].copy()
  
+df_tags_only["tags"] = df_tags_only["tags"].apply(lambda d: list(d.items()))
+df_bridge = df_tags_only.explode("tags").dropna(subset=["tags"])
+df_bridge = df_bridge[df_bridge["tags"].apply(lambda x: isinstance(x, tuple) and len(x) == 2)]
+df_bridge[["tag_name", "votes"]] = pd.DataFrame(
+    df_bridge["tags"].tolist(), index=df_bridge.index
+)
+df_bridge = df_bridge[["appid", "tag_name", "votes"]].copy()
+df_bridge["tag_name"] = df_bridge["tag_name"].str.strip()
+df_bridge = df_bridge[df_bridge["tag_name"] != ""]
+df_bridge["votes"] = pd.to_numeric(df_bridge["votes"], errors="coerce").fillna(0).astype(int)
+df_bridge.drop_duplicates(subset=["appid", "tag_name"], inplace=True)
+
 if df_bridge.empty:
     sample = df_raw["tags"].dropna().head(5).tolist()
     raise ValueError(f"No tags parsed. Sample tags values: {sample}")
  
-# unique tag names → tags dimension table
+# Tags dimension table — sorted so tag_id assignments are stable across runs.
+# Non-deterministic ordering (from .unique()) would reassign different IDs to the same tags each time the script runs.
 # the index (which starts at 0) is promoted to a real column called tag_id, then + 1 shifts it to start at 1 instead of 0 (optional, but often better for IDs to start at 1) because some SQL tools and ORMs expect that convention
-df_tags = pd.DataFrame(
-    df_bridge["tag_name"].unique(), columns=["tag_name"]
+df_dim_tags = pd.DataFrame(
+    sorted(df_bridge["tag_name"].unique()), columns=["tag_name"]
 )
-df_tags.index.name = "tag_id"
-df_tags.reset_index(inplace=True)
-df_tags["tag_id"] = df_tags["tag_id"] + 1
- 
-# write tags dimension table
-# This must happen before the bridge table because the bridge needs tag_id values that only exist after this write
-df_tags.to_sql("tags", engine, if_exists="replace", index=False)
-print(f"  tags: {len(df_tags)} rows")
+df_dim_tags.index.name = "tag_id"
+df_dim_tags.reset_index(inplace=True)
+df_dim_tags["tag_id"] = df_dim_tags["tag_id"] + 1
  
 # merge to get tag_id into bridge, keep only valid appids
-# We merge the exploded tags DataFrame (df_bridge) with the tags dimension table (df_tags) on the tag_name to get the corresponding tag_id for each tag_name
+# We merge the exploded tags DataFrame (df_bridge) with the tags dimension table (df_dim_tags) on the tag_name to get the corresponding tag_id for each tag_name
 # drop_duplicates is used to ensure that if a game has the same tag multiple times (which shouldn't happen but we want to be safe), we only keep one row for that game-tag combination in the bridge table
-# valid is a set of appids that exist in the cleaned games DataFrame (df), which we use to filter the bridge table to only include valid game-tag relationships for games that made it through our cleaning process
-df_bridge = df_bridge.merge(df_tags, on="tag_name")[["appid", "tag_id", "votes"]]
+df_bridge = df_bridge.merge(df_dim_tags, on="tag_name")[["appid", "tag_id", "votes"]]
 df_bridge.drop_duplicates(subset=["appid", "tag_id"], inplace=True)
-valid = set(df["appid"].tolist())
-df_bridge = df_bridge[df_bridge["appid"].isin(valid)]
 
-# write bridge table
-# The bridge table "game_tags" will have columns: appid, tag_id, votes
-df_bridge.to_sql("game_tags", engine, if_exists="replace", index=False)
-print(f"  game_tags: {len(df_bridge)} rows")
+# ── Write all three tables inside a single transaction ───────────────────────
+# If any write fails, all are rolled back — no partial state in the database.
+# Note: if_exists="replace" drops and recreates each table, which also removes
+# any indexes or constraints added in previous runs. Re-apply them via the SQL
+# cleanup script after this script completes.
+print("Writing to database (single transaction)...")
+with engine.begin() as conn:
+    df.to_sql("games", conn, if_exists="replace", index=False, dtype={
+        "tags":            JSONB,
+        "developers":      JSONB,
+        "publishers":      JSONB,
+        "genres_and_tags": JSONB,
+    })
+    print(f"  games: {len(df)} rows")
+ 
+    df_dim_tags.to_sql("tags", conn, if_exists="replace", index=False)
+    print(f"  tags: {len(df_dim_tags)} rows")
+ 
+    df_bridge.to_sql("game_tags", conn, if_exists="replace", index=False)
+    print(f"  game_tags: {len(df_bridge)} rows")
+ 
+print("Done.")
