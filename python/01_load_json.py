@@ -1,7 +1,7 @@
 import json # parses .json files into Python dicts/lists
 import os # reads environment variables from .env
 import pandas as pd # for DataFrame manipulation and cleaning
-from sqlalchemy import create_engine # for SQL/Python connection and writing to Postgres
+from sqlalchemy import create_engine, text # for SQL/Python connection and writing to Postgres
 from sqlalchemy import Text # for text columns in to_sql dtype mapping
 from sqlalchemy.dialects.postgresql import JSONB # for JSONB columns in to_sql dtype mapping
 from dotenv import load_dotenv # for loading .env file with DB credentials
@@ -152,6 +152,11 @@ df_dim_tags = pd.DataFrame(
 df_dim_tags.index.name = "tag_id"
 df_dim_tags.reset_index(inplace=True)
 df_dim_tags["tag_id"] = df_dim_tags["tag_id"] + 1
+
+# Count distinct games per tag from the bridge table (before the merge adds tag_id)
+tag_game_counts = df_bridge.groupby("tag_name")["appid"].nunique().rename("game_count")
+df_dim_tags = df_dim_tags.merge(tag_game_counts, on="tag_name", how="left")
+df_dim_tags["game_count"] = df_dim_tags["game_count"].fillna(0).astype(int)
  
 # merge to get tag_id into bridge, keep only valid appids
 # We merge the exploded tags DataFrame (df_bridge) with the tags dimension table (df_dim_tags) on the tag_name to get the corresponding tag_id for each tag_name
@@ -167,6 +172,13 @@ df_bridge.drop_duplicates(subset=["appid", "tag_id"], inplace=True)
 # chunksize=1000 and method="multi" optimize the insert performance by batching rows into multi-row INSERT statements.
 print("Writing to database (single transaction)...")
 with engine.begin() as conn:
+    # Drop in child-first order so FK constraints don't block the drops.
+    # CASCADE is a safety net for any other dependents (views, indexes, etc.)
+    # added outside this script (e.g. from the SQL cleanup script).
+    conn.execute(text("DROP TABLE IF EXISTS game_tags CASCADE"))
+    conn.execute(text("DROP TABLE IF EXISTS tags CASCADE"))
+    conn.execute(text("DROP TABLE IF EXISTS games CASCADE"))
+    
     df.to_sql("games", conn, if_exists="replace", index=False, chunksize=1000, method="multi",dtype={
         "tags":            JSONB,
         "developers":      JSONB,
