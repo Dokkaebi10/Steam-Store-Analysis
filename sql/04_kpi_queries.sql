@@ -29,3 +29,18 @@ SELECT
 FROM games
 GROUP BY developer
 ORDER BY game_count DESC;
+
+-- REFERENCE — JSONB query patterns
+-- Check if a key EXISTS in a JSONB column (most common for tags):
+--   SELECT * FROM games WHERE tags ? 'Action';
+--   The ? operator returns true if the key is present, regardless of its value.
+--   Use this when you want "games that have the Action tag".
+--
+-- Check if a JSONB column CONTAINS a sub-object (exact value match):
+--   SELECT * FROM games WHERE tags @> '{"Action": 1500}'::jsonb;
+--   This only matches rows where Action has exactly the value 1500.
+--   Rarely useful for tags — prefer ? for key existence,
+--   or JOIN game_tags WHERE votes > N for threshold filtering.
+--
+-- Filter genres_and_tags array for a specific genre:
+--   SELECT * FROM games WHERE genres_and_tags @> '["RPG"]'::jsonb;
