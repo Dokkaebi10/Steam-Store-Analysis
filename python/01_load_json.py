@@ -54,8 +54,10 @@ df["appid"] = pd.to_numeric(df["appid"], errors="coerce")
 df.dropna(subset=["appid"], inplace=True)
 df["appid"] = df["appid"].astype(int)
  
-# price: already in dollars — coerce bad values to null
+# price: already in dollars — coerce bad values to NaN
+# Convert to None instead of NaN for better compatibility with JSONB and SQL NULL semantics
 df["price"] = pd.to_numeric(df["price"], errors="coerce")
+df["price"] = df["price"].where(df["price"].notna(), other=None)
  
 # integer columns: fill nulls with 0
 # Note: some of these may be better as nulls (eg. Metacritic score) instead of zeros, but we'll keep it simple for now
@@ -76,6 +78,7 @@ for col in ["windows", "mac", "linux"]:
 # ~ is bitwise NOT operator, used here to negate the condition (keep rows that do NOT match)
 # na=False in str.contains ensures that if name is NaN, it won't match the regex and thus won't be dropped by this filter
 # this is done in the python script to reduce the amount of junk data we write to Postgres, which can speed up the SQL cleaning steps later and reduce storage of clearly invalid entries
+before = len(df)
 df.dropna(subset=["name"], inplace=True)
 df = df[~df["name"].str.contains("test|valve test", case=False, na=False)]
 df = df[~(
@@ -84,7 +87,7 @@ df = df[~(
     (df["negative"] == 0)
 )]
  
-print(f"Clean row count: {len(df)}") # should be significantly less than the original count if junk rows were removed
+print(f"Removed {before - len(df)} test/junk rows") # should be significantly less than the original count if junk rows were removed
  
 # Combine categories (full list) and tags (dict keys) into one deduplicated list.
 # Only strip whitespace — do NOT apply .title() here: it mangles acronyms like
@@ -137,7 +140,7 @@ df_bridge["votes"] = pd.to_numeric(df_bridge["votes"], errors="coerce").fillna(0
 df_bridge.drop_duplicates(subset=["appid", "tag_name"], inplace=True)
 
 if df_bridge.empty:
-    sample = df_raw["tags"].dropna().head(5).tolist()
+    sample = df["tags"].dropna().head(5).tolist()
     raise ValueError(f"No tags parsed. Sample tags values: {sample}")
  
 # Tags dimension table — sorted so tag_id assignments are stable across runs.
@@ -156,14 +159,15 @@ df_dim_tags["tag_id"] = df_dim_tags["tag_id"] + 1
 df_bridge = df_bridge.merge(df_dim_tags, on="tag_name")[["appid", "tag_id", "votes"]]
 df_bridge.drop_duplicates(subset=["appid", "tag_id"], inplace=True)
 
-# ── Write all three tables inside a single transaction ───────────────────────
+# Write all three tables inside a single transaction
 # If any write fails, all are rolled back — no partial state in the database.
 # Note: if_exists="replace" drops and recreates each table, which also removes
 # any indexes or constraints added in previous runs. Re-apply them via the SQL
 # cleanup script after this script completes.
+# chunksize=1000 and method="multi" optimize the insert performance by batching rows into multi-row INSERT statements.
 print("Writing to database (single transaction)...")
 with engine.begin() as conn:
-    df.to_sql("games", conn, if_exists="replace", index=False, dtype={
+    df.to_sql("games", conn, if_exists="replace", index=False, chunksize=1000, method="multi",dtype={
         "tags":            JSONB,
         "developers":      JSONB,
         "publishers":      JSONB,
