@@ -12,7 +12,9 @@ FROM games;
 -- Fix bad prices
 -- Remove negative prices and unrealistically high prices (e.g. $999) that are likely data errors.
 UPDATE games SET price_usd = NULL
-WHERE price_usd IS NULL OR price_usd < 0 OR price_usd > 999 OR price_usd != price_usd
+WHERE price_usd < 0
+   OR price_usd > 999
+   OR price_usd != price_usd; -- also catches NaN since NaN != NaN is true
 -- Check how many null prices remain after cleanup
 SELECT COUNT(*) FILTER (WHERE price_usd IS NULL) AS null_prices_after_cleanup
 FROM games;
