@@ -3,23 +3,26 @@
 Analysis of video games listed on the Steam Store using the Kaggle Dataset "Steam Games Dataset" by Martin Bustos. This a self-learning project where Python is used to load the dataset (json), SQL is used to create the tables and handle the data, and Power BI is used for the dashboard. 
 
 This Project is a way for me to strengthen my Python skills and apply my more new skills with SQL and Power BI.
+I am mainly learning through Claude and GitHub Copilot.
 
 # KPI
 1. Average playtime by tags
 - Which tags are associated with the longest average playtime?
 - Additionally, compare if highest playtimes also have acheievments
-2. Top 10 publishers/developers by estimated owners
-- Leaderboard of publishers and developers
+2. Top 10 publishers/developers by total review
+- Leaderboard of publishers by ratio of positive and negative reviews
 3. Games released per year
 - Trend of volume within gaming industry
 4. Average playtime by price
 - Moneys worth of games
 5. Average playtime for Free to Play vs Average playtime for Paid
 - Comparison of free to play and paid gaming models
-6. Price changes per year compared to average 
-- Check if price changes (increase/decrease) actually affect estimated owners/total reviews/ratio of positive negative reviews
-7. What price range has the most estimated owners on average?
+- Further comparison between tags
 8. Which tags are associated with the highest review scores?
+
+# KPI Considerations
+7. What price range has the most estimated owners on average?
+
 
 ## Getting the data
 1. Download from Kaggle: [Steam Games Dataset by Martin Bustos](kaggle link)
