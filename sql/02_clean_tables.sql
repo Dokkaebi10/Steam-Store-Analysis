@@ -51,5 +51,94 @@ WHERE (average_playtime_forever = 0
 -- NOT EXISTS over NOT IN for better performance and correct handling of NULLs.
 DELETE FROM game_tags gt
 WHERE NOT EXISTS (SELECT 1 FROM games g WHERE g.appid = gt.appid);
+
+-- Run the audit SELECTs first and review the output.
+-- When satisfied, uncomment the two DELETE blocks to execute.
+-- The orphan cleanup at the bottom of this script covers both this removal and the earlier ones — nothing extra needed.
+SET votes_threshold = 5; -- tune this threshold based on the output of the SELECTs below
+
+-- Removal requires ALL THREE conditions to be true:
+--   1. Has at least one non-game tag
+--   2. That non-game tag has votes above the threshold
+--   3. Has none of the common game-indicator tags
+SELECT
+    g.appid,
+    g.name,
+    g.genres_and_tags,
+    t.tag_name                          AS non_game_tag,
+    gt.votes                            AS non_game_tag_votes
+FROM games g
+JOIN game_tags gt ON g.appid = gt.appid
+JOIN tags      t  ON gt.tag_id = t.tag_id
+WHERE
+    -- Condition 1 + 2: has a non-game tag with meaningful votes
+    t.tag_name IN (
+        'Video Production', 'Audio Production', 'Photo Editing',
+        'Animation & Modeling', 'Game Development', 'Web Publishing',
+        'Accounting', 'Utilities', 'Software', 'Software Training', 'Tutorial'
+    )
+    AND gt.votes >= $votes_threshold
+    -- Condition 3: has none of the common game-indicator tags
+    AND NOT EXISTS (
+        SELECT 1
+        FROM game_tags gt2
+        JOIN tags t2 ON gt2.tag_id = t2.tag_id
+        WHERE gt2.appid = g.appid
+          AND t2.tag_name IN (
+              'Singleplayer', 'Multiplayer', 'Co-op', 'PvP', 'PvE',
+              'Action', 'RPG', 'Adventure', 'Strategy', 'Puzzle',
+              'Shooter', 'Platformer', 'Horror', 'Survival', 'Roguelike',
+              'Roguelite', 'Indie', 'Casual', 'Sports', 'Racing',
+              'Fighting', 'Simulation',  -- keep Simulation here:
+                                         -- real software rarely gets
+                                         -- tagged Simulation by users
+              'Open World', 'Sandbox', 'Story Rich', 'Atmospheric',
+              'First-Person', 'Third-Person', 'Top-Down', 'Side Scroller',
+              '2D', '3D'
+          )
+    )
+ORDER BY gt.votes DESC, g.name;
+
+SELECT COUNT(DISTINCT g.appid) AS non_game_rows_to_remove
+FROM games g
+JOIN game_tags gt ON g.appid = gt.appid
+JOIN tags      t  ON gt.tag_id = t.tag_id
+WHERE
+    t.tag_name IN (
+        'Video Production', 'Audio Production', 'Photo Editing',
+        'Animation & Modeling', 'Game Development', 'Web Publishing',
+        'Accounting', 'Utilities', 'Software', 'Software Training', 'Tutorial'
+    )
+    AND gt.votes >= $votes_threshold
+    AND NOT EXISTS (
+        SELECT 1
+        FROM game_tags gt2
+        JOIN tags t2 ON gt2.tag_id = t2.tag_id
+        WHERE gt2.appid = g.appid
+          AND t2.tag_name IN (
+              'Singleplayer', 'Multiplayer', 'Co-op', 'PvP', 'PvE',
+              'Action', 'RPG', 'Adventure', 'Strategy', 'Puzzle',
+              'Shooter', 'Platformer', 'Horror', 'Survival', 'Roguelike',
+              'Roguelite', 'Indie', 'Casual', 'Sports', 'Racing',
+              'Fighting', 'Simulation', 'Open World', 'Sandbox',
+              'Story Rich', 'Atmospheric', 'First-Person', 'Third-Person',
+              'Top-Down', 'Side Scroller', '2D', '3D'
+          )
+    );
+
+-- Clean up orphaned game_tags (covers all deletes above)
+DELETE FROM game_tags
+WHERE appid NOT IN (SELECT appid FROM games);
+
+-- Prune tags dimension table of any now-unreferenced tags
+-- This covers the optional non-game software delete.
+-- Even though that block correctly deletes game_tags first,
+-- some tags may now have zero games referencing them in game_tags.
+-- Those tag rows in the dimension table are harmless but dead weight.
+DELETE FROM tags t
+WHERE NOT EXISTS (
+    SELECT 1 FROM game_tags gt WHERE gt.tag_id = t.tag_id
+);
+
 -- Final row count
 SELECT COUNT(*) AS clean_rows FROM games;
