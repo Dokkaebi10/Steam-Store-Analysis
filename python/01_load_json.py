@@ -2,12 +2,16 @@ import json # parses .json files into Python dicts/lists
 import os # reads environment variables from .env
 import pandas as pd # for DataFrame manipulation and cleaning
 from sqlalchemy import create_engine, text # for SQL/Python connection and writing to Postgres
-from sqlalchemy import Text # for text columns in to_sql dtype mapping
 from sqlalchemy.dialects.postgresql import JSONB # for JSONB columns in to_sql dtype mapping
 from dotenv import load_dotenv # for loading .env file with DB credentials
  
 load_dotenv()
- 
+
+required = ["DB_USER", "DB_PASSWORD", "DB_HOST", "DB_PORT", "DB_NAME"]
+missing  = [k for k in required if not os.getenv(k)]
+if missing:
+    raise EnvironmentError(f"Missing required env vars: {missing}")
+
 # PostgreSQL Database connection
 # Reads credentials from .env
 engine = create_engine(
@@ -55,9 +59,7 @@ df.dropna(subset=["appid"], inplace=True)
 df["appid"] = df["appid"].astype(int)
  
 # price: already in dollars — coerce bad values to NaN
-# Convert to None instead of NaN for better compatibility with JSONB and SQL NULL semantics
 df["price"] = pd.to_numeric(df["price"], errors="coerce")
-df["price"] = df["price"].where(df["price"].notna(), other=None)
  
 # integer columns: fill nulls with 0
 # Note: some of these may be better as nulls (eg. Metacritic score) instead of zeros, but we'll keep it simple for now
@@ -69,6 +71,9 @@ int_cols = [
 ]
 for col in int_cols:
     df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+
+for col in ["developers", "publishers"]:
+    df[col] = df[col].apply(lambda x: x if isinstance(x, list) else [])
  
 # booleans
 for col in ["windows", "mac", "linux"]:
@@ -123,13 +128,14 @@ df["tags"] = df["tags"].apply(lambda x: x if isinstance(x, dict) else {})
 # This is significantly faster than iterrows() on large datasets.
 print("Building tags tables...")
  
-df_tags_only = df[["appid", "tags"]].loc[
-    df["tags"].apply(lambda x: isinstance(x, dict))
-].copy()
+# We first filter to rows where tags is a dict, then we convert the dict to a list of (tag_name, votes) tuples, and finally we explode that list into separate rows. 
+# This way we can handle the tags in a vectorized manner without explicit Python loops.
+mask = df["tags"].apply(lambda x: isinstance(x, dict))
+df_tags_only = df.loc[mask, ["appid", "tags"]].copy()
  
 df_tags_only["tags"] = df_tags_only["tags"].apply(lambda d: list(d.items()))
 df_bridge = df_tags_only.explode("tags").dropna(subset=["tags"])
-df_bridge = df_bridge[df_bridge["tags"].apply(lambda x: isinstance(x, tuple) and len(x) == 2)]
+df_bridge = df_bridge[df_bridge["tags"].apply(lambda x: isinstance(x, tuple) and len(x) == 2)].copy()
 df_bridge[["tag_name", "votes"]] = pd.DataFrame(
     df_bridge["tags"].tolist(), index=df_bridge.index
 )
@@ -164,33 +170,39 @@ df_dim_tags["game_count"] = df_dim_tags["game_count"].fillna(0).astype(int)
 df_bridge = df_bridge.merge(df_dim_tags, on="tag_name")[["appid", "tag_id", "votes"]]
 df_bridge.drop_duplicates(subset=["appid", "tag_id"], inplace=True)
 
+# Ensure all appids in the bridge table exist in the main games table to maintain referential integrity. 
+# This is a safety check before writing to the database, since the SQL cleanup script will add FK constraints that would reject any invalid appids.
+valid_appids = set(df["appid"])
+df_bridge = df_bridge[df_bridge["appid"].isin(valid_appids)].copy()
+
 # Write all three tables inside a single transaction
 # If any write fails, all are rolled back — no partial state in the database.
 # Note: if_exists="replace" drops and recreates each table, which also removes
 # any indexes or constraints added in previous runs. Re-apply them via the SQL
 # cleanup script after this script completes.
 # chunksize=1000 and method="multi" optimize the insert performance by batching rows into multi-row INSERT statements.
-print("Writing to database (single transaction)...")
-with engine.begin() as conn:
-    # Drop in child-first order so FK constraints don't block the drops.
-    # CASCADE is a safety net for any other dependents (views, indexes, etc.)
-    # added outside this script (e.g. from the SQL cleanup script).
-    conn.execute(text("DROP TABLE IF EXISTS game_tags CASCADE"))
-    conn.execute(text("DROP TABLE IF EXISTS tags CASCADE"))
-    conn.execute(text("DROP TABLE IF EXISTS games CASCADE"))
-    
-    df.to_sql("games", conn, if_exists="replace", index=False, chunksize=1000, method="multi",dtype={
-        "tags":            JSONB,
-        "developers":      JSONB,
-        "publishers":      JSONB,
-        "genres_and_tags": JSONB,
-    })
-    print(f"  games: {len(df)} rows")
- 
-    df_dim_tags.to_sql("tags", conn, if_exists="replace", index=False)
-    print(f"  tags: {len(df_dim_tags)} rows")
- 
-    df_bridge.to_sql("game_tags", conn, if_exists="replace", index=False)
+# CASCADE drops any dependent views (v_kpi_*) created by views.sql.
+# # Re-run views.sql and constraints.sql after any full reload.
+try:
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS game_tags CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS tags CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS games CASCADE"))
+
+        df.to_sql("games", conn, if_exists="replace", index=False, chunksize=1000, method="multi", dtype={
+            "tags":            JSONB,
+            "developers":      JSONB,
+            "publishers":      JSONB,
+            "genres_and_tags": JSONB,
+        })
+        df_dim_tags.to_sql("tags", conn, if_exists="replace", index=False)
+        df_bridge.to_sql("game_tags", conn, if_exists="replace", index=False)
+
+    print(f"  games:     {len(df)} rows")
+    print(f"  tags:      {len(df_dim_tags)} rows")
     print(f"  game_tags: {len(df_bridge)} rows")
- 
-print("Done.")
+    print("Done.")
+
+except Exception as e:
+    print(f"Write failed, transaction rolled back: {e}")
+    raise

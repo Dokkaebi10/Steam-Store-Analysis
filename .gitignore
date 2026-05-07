@@ -1,20 +1,24 @@
-# Ignore environment variables and data files
+# Credentials
 .env
+*.env
 
-# Ignore data directory
-/data
+# Data
+data/*.json
+data/*.csv
 
-# Ignore virtual environment directory
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+.venv/
 venv/
 
-# Python cache (auto-generated, not needed in repo)
-__pycache__/
-*.pyc
-*.pyo
-
-# VSCode machine-specific settings
+# Editors
 .vscode/
+.idea/
+*.code-workspace
 
-# OS junk
+# OS
 .DS_Store
 Thumbs.db
