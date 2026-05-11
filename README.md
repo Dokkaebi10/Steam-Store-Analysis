@@ -33,7 +33,6 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 │   ├── views.sql                   # Power BI-facing KPI views
 │   └── kpi_queries.sql             # Standalone KPI queries (optional)
 ├── .env                            # DB credentials (not committed)
-├── .env.example                    # Credential template
 ├── requirements.txt
 └── README.md
 ```
@@ -88,26 +87,13 @@ Install Python dependencies:
 pip install -r requirements.txt
 ```
 
-`requirements.txt` should include:
-
-```
-pandas
-sqlalchemy
-psycopg2-binary
-python-dotenv
-```
-
 ---
 
 ## Setup
 
-1. **Clone the repository** and place `games.json` in the `data/` folder.
+1. **Clone the repository** .
 
-2. **Create your `.env` file** from the template:
-
-   ```bash
-   cp .env.example .env
-   ```
+2. **Download** [Steam Games Dataset](https://www.kaggle.com/datasets/fronkongames/steam-games-dataset) and place `games.json` in the `data/` folder
 
 3. **Fill in your database credentials** in `.env`:
 
@@ -172,7 +158,7 @@ Performs two sequential transactions:
 
 **Transaction 2 — guarded non-game deletion:**
 - Identifies apps tagged as software/tools with no game-indicator tags
-- Aborts automatically if more than 500 rows are flagged (safety threshold)
+- Aborts automatically if more than 1000 rows are flagged (safety threshold)
 - Deletes flagged apps and their bridge rows
 - Prunes orphaned tags
 - Recalculates `tags.game_count` to reflect post-deletion state
