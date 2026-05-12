@@ -2,6 +2,7 @@
 
 A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, cleans and normalises it into three tables, and exposes pre-aggregated views for Power BI dashboards.
 
+> This is personal learning project so there are a lot more comments as a way to learn the what's and why's for each line and block of code.
 ---
 
 ## Table of Contents
