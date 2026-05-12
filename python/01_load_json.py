@@ -147,7 +147,7 @@ df_dim_tags["game_count"] = df_dim_tags["game_count"].fillna(0).astype(int)
 # merge the bridge table with the dimension table to replace tag_name with tag_id, which is more efficient for storage and querying in the database
 df_bridge = df_bridge.merge(df_dim_tags[["tag_name", "tag_id"]], on="tag_name")[["appid", "tag_id", "votes"]]
 
-# write all three tables inside a single transaction
+# drop old and write all new three tables inside a single transaction
 # if any write fails, all are rolled back — no partial state in the database.
 # if_exists="replace" drops and recreates each table, which also removes any indexes or constraints added in previous runs
 # CASCADE drops any dependent views (v_kpi_*) created by views.sql.
@@ -157,7 +157,7 @@ try:
         conn.execute(text("DROP TABLE IF EXISTS game_tags CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS tags CASCADE"))
         conn.execute(text("DROP TABLE IF EXISTS games CASCADE"))
-
+        # chunksize=1000 and method="multi" batches into multi-row inserts; 1000 rows ber batch
         df.to_sql("games", conn, if_exists="replace", index=False, chunksize=1000, method="multi", dtype={
             "tags":            JSONB,
             "developers":      JSONB,

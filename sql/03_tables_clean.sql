@@ -1,41 +1,37 @@
--- Null out prices outside the plausible range.
--- pandas coerces unparseable prices to NULL before the DB load, so no NaN float condition is needed here.
+-- transaction 1: clean implausible values and zero-engagement rows from games
 BEGIN;
- 
+
+-- prices outside the plausible range become NULL — these are likely data errors, and the Python load already coerces unparseable values to NULL, so no NaN float condition is needed here.
 UPDATE games
 SET price_usd = NULL
 WHERE price_usd < 0
    OR price_usd > 999;
- 
--- The Python load kept release_date as text to avoid cast errors.
--- The regex filter skips rows that don't match "Mon DD, YYYY"
--- (e.g. "Jul 29, 2016"). Non-matching rows stay NULL.
--- Add extra UPDATE passes below for any other formats spotted
--- in cleanup_audit.sql query 3.
+
+-- adds DATE column and adds raw text column for rows that match data format "Mon DD, YYYY" (e.g. "Jul 29, 2016")
+-- non-matching rows stay NULL; add extra UPDATE passes for any other formats spotted in tables_audit.sql que
+-- the regex filter skips rows that don't match "Mon DD, YYYY" (e.g. "Jul 29, 2016")
 ALTER TABLE games ADD COLUMN IF NOT EXISTS release_date_parsed DATE;
  
 UPDATE games
 SET release_date_parsed = TO_DATE(release_date, 'Mon DD, YYYY')
 WHERE release_date ~ '^\w{3} \d+, \d{4}$';
  
--- Add additional UPDATE passes here for non-standard formats, e.g.:
--- UPDATE games
--- SET release_date_parsed = TO_DATE(release_date, 'YYYY-MM-DD')
--- WHERE release_date ~ '^\d{4}-\d{2}-\d{2}$'
---   AND release_date_parsed IS NULL;
- 
- -- Deletes rows with no playtime on either measure AND no reviews
--- on either side. game_tags orphans are cleaned up in Step 5.
+UPDATE games
+SET release_date_parsed = TO_DATE(release_date, 'YYYY-MM-DD')
+WHERE release_date ~ '^\d{4}-\d{2}-\d{2}$'
+    AND release_date_parsed IS NULL;
+
+-- deletes rows with no engagement signals
 DELETE FROM games
 WHERE (average_playtime_forever = 0 AND median_playtime_forever = 0)
   AND (positive_reviews         = 0 AND negative_reviews        = 0);
  
 COMMIT;
 
+-- transaction 2: delete non-games based on tag patterns identified in tables_audit.sql
 BEGIN;
 
--- Both tables_audit and tables_clean must be run in the same psql session — temp tables do not persist across sessions.
--- Uncomment when satisfied with the audit output.
+-- uncomment when satisfied with the audit output.
 -- Re-comment after running to prevent accidental re-execution.
 -- Child table must be deleted before parent to respect FK order.
 DROP TABLE IF EXISTS non_game_appids;
@@ -74,7 +70,7 @@ BEGIN
     SELECT COUNT(*) INTO n FROM non_game_appids;
     IF n > 1000 THEN
         RAISE EXCEPTION 'non_game_appids has % rows — expected ≤ 1000. '
-                        'Review cleanup_audit.sql output and adjust threshold. '
+                        'Review tables_audit.sql output and adjust threshold. '
                         'Transaction will roll back.', n;
     END IF;
     RAISE NOTICE 'non_game_appids: % rows — proceeding with delete', n;
