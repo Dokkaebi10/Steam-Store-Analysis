@@ -2,7 +2,6 @@
 
 A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, cleans and normalises it into three tables, and exposes pre-aggregated views for Power BI dashboards.
 
-> This is personal learning project so there are a lot more comments as a way to learn the what's and why's for each line and block of code.
 ---
 
 ## Table of Contents
@@ -16,6 +15,7 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 - [KPI Views](#kpi-views)
 - [Power BI Connection](#power-bi-connection)
 - [Re-running the Pipeline](#re-running-the-pipeline)
+- [Tools & Technologies](#tools--technologies)
 - [Troubleshooting](#troubleshooting)
 
 ---
@@ -48,7 +48,7 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 games.json
     │
     ▼
-01_load_data.py          — Parses, flattens, cleans, and writes three tables
+01_load_data.py                     — Parses, flattens, cleans, and writes three tables
     │
     ▼
 ┌─────────────────────────────────────────┐
@@ -154,8 +154,6 @@ Performs two sequential transactions:
 - Prunes orphaned tags
 - Recalculates `tags.game_count` to reflect post-deletion state
 
-> **Note:** If Transaction 2 aborts due to the safety threshold, only that transaction rolls back. Transaction 1 is already committed and does not need to be re-run.
-
 ---
 
 ### Step 4 — Apply constraints and indexes (05_constraints_and_indexes.sql)
@@ -169,12 +167,6 @@ Adds primary keys, foreign keys with `ON DELETE CASCADE`, and all performance in
 ### Step 5 — Create KPI views (07_views.sql)
 
 Creates six `v_kpi_*` views that Power BI connects to directly. Verify they were created:
-
-```sql
-SELECT viewname FROM pg_views
-WHERE schemaname = 'public' AND viewname LIKE 'v_kpi_%'
-ORDER BY viewname;
-```
 
 ---
 
@@ -235,10 +227,6 @@ All playtime values are stored in **minutes** in the base tables. All views conv
 | `v_kpi_f2p_vs_paid_summary` | Top-level free vs paid comparison with `playtime_hrs_per_dollar` |
 | `v_kpi_review_scores_by_tag` | Wilson lower-bound approval score per tag |
 
-> `v_kpi_releases_by_year_tag` returns all tags — apply a Top N filter on `tag_total_game_count` in Power BI to keep charts readable (15 is a good default).
-
-> `v_kpi_playtime_by_price` — always sort the axis by `sort_order` (ascending) in Power BI, not alphabetically.
-
 ---
 
 ## Power BI Connection
@@ -250,23 +238,16 @@ All playtime values are stored in **minutes** in the base tables. All views conv
 5. In the Navigator, select only the six `v_kpi_*` views → **Load**
 6. In **Column Tools**, set `price_bracket` to sort by `sort_order` in `v_kpi_playtime_by_price`
 
-For scheduled refresh, publish to Power BI Service and configure an **On-premises Data Gateway**.
-
 ---
 
 ## Re-running the Pipeline
 
-When you reload `games.json` with updated data, repeat Steps 1–5 in full:
+When you reload `games.json` with updated data, repeat Steps 1–5 in full then click **Refresh** in Power BI Desktop.
 
-```bash
-python load_data.py        # re-drops and recreates all tables (CASCADE drops views)
-psql -f sql/cleanup_audit.sql
-psql -f sql/cleanup_run.sql
-psql -f sql/constraints.sql
-psql -f sql/views.sql      # must be re-run — views were dropped by CASCADE in Step 1
-```
+---
 
-Then click **Refresh** in Power BI Desktop.
+## Tools & Technologies
+Python · pandas · SQLAlchemy · PostgreSQL · Power BI · Claude (AI assistant)
 
 ---
 
