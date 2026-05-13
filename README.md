@@ -29,7 +29,7 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 |   └── 01_load_data.py                 # ETL: JSON → PostgreSQL
 ├── sql/
 │   ├── 02_tables_audit.sql             # Pre-cleanup inspection queries (read-only)
-│   ├── 03_tables_run.sql               # Destructive cleanup — run after audit
+│   ├── 03_tables_clean.sql               # Destructive cleanup — run after audit
 |   ├── 04_remove_non_games.sql         # Remove software that are not games (optional)
 │   ├── 05_constraints_and_indexes.sql  # PKs, FKs, and indexes
 │   ├── 06_kpi_queries.sql              # Power BI-facing KPI views (optional)
@@ -62,7 +62,7 @@ games.json
     │
     ▼
 03_tables_clean.sql                 — Remove junk rows, parse dates, prune non-games
-04_remove_non_games (optioanl)
+04_remove_non_games (optional)
     │
     ▼
 05_constraints_and_indexes.sql      — Add PKs, FKs, indexes, VACUUM ANALYZE
@@ -180,7 +180,7 @@ Creates six `v_kpi_*` views that Power BI connects to directly. Verify they were
 | `appid` | integer (PK) | Steam application ID |
 | `name` | text | Game title |
 | `release_date` | text | Raw release date string from Steam |
-| `release_date_parsed` | date | Parsed date — added by `cleanup_run.sql` |
+| `release_date_parsed` | date | Parsed date — added by `tables_clean.sql` |
 | `price_usd` | numeric | Price in USD; NULL if unparseable or out of range |
 | `dlc_count` | integer | Number of DLCs |
 | `windows / mac / linux` | boolean | Platform availability |
@@ -249,13 +249,13 @@ Python · pandas · SQLAlchemy · PostgreSQL · Power BI · Claude (AI assistant
 ## Troubleshooting
 
 **`column release_date_parsed does not exist`**
-`constraints.sql` or `views.sql` was run before `cleanup_run.sql`. Run `cleanup_run.sql` first — it creates this column via `ALTER TABLE`.
+`constraints.sql` or `views.sql` was run before `tables_clean.sql`. Run `tables_clean.sql` first — it creates this column via `ALTER TABLE`.
 
 **`VACUUM cannot run inside a transaction block`**
 Your SQL client has auto-begin enabled. Run the three `VACUUM ANALYZE` statements at the bottom of `constraints.sql` separately in a plain psql session.
 
 **`non_game_appids has N rows — expected ≤ 500`**
-The safety threshold in `cleanup_run.sql` fired. Run `cleanup_audit.sql` first, review the full non-game list, and either adjust the tag lists or the votes threshold in both files before re-running.
+The safety threshold in `cleanup_run.sql` fired. Run `tables_audit.sql` first, review the full non-game list, and either adjust the tag lists or the votes threshold in both files before re-running.
 
 **`Missing required env vars: [...]`**
 Your `.env` file is missing or one of the five required keys is not set. Check that `.env` exists in the project root and contains all of `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`.
