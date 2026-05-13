@@ -14,7 +14,6 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 - [Database Schema](#database-schema)
 - [KPI Views](#kpi-views)
 - [Power BI Connection](#power-bi-connection)
-- [Re-running the Pipeline](#re-running-the-pipeline)
 - [Tools & Technologies](#tools--technologies)
 - [Troubleshooting](#troubleshooting)
 
@@ -120,6 +119,8 @@ pip install -r requirements.txt
 ## Run Order
 
 > ⚠️ The scripts have strict dependencies. Running them out of order will cause errors. Follow this sequence exactly.
+> ⚠️ When you reload `games.json` with updated data, repeat Steps 1–5 in full then click **Refresh** in Power BI Desktop.
+
 
 ### Step 1 — Load raw data (01_load_data.py)
 
@@ -237,12 +238,6 @@ All playtime values are stored in **minutes** in the base tables. All views conv
 4. Data Connectivity mode: **Import**
 5. In the Navigator, select only the six `v_kpi_*` views → **Load**
 6. In **Column Tools**, set `price_bracket` to sort by `sort_order` in `v_kpi_playtime_by_price`
-
----
-
-## Re-running the Pipeline
-
-When you reload `games.json` with updated data, repeat Steps 1–5 in full then click **Refresh** in Power BI Desktop.
 
 ---
 
