@@ -25,15 +25,17 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 ```
 .
 ├── data/
-│   └── games.json                  # Raw Steam dataset (not committed)
-├── load_data.py                    # ETL: JSON → PostgreSQL
+│   └── games.json                      # Raw Steam dataset (not committed)
+├── python/
+|   └── 01_load_data.py                 # ETL: JSON → PostgreSQL
 ├── sql/
-│   ├── cleanup_audit.sql           # Pre-cleanup inspection queries (read-only)
-│   ├── cleanup_run.sql             # Destructive cleanup — run after audit
-│   ├── constraints.sql             # PKs, FKs, and indexes
-│   ├── views.sql                   # Power BI-facing KPI views
-│   └── kpi_queries.sql             # Standalone KPI queries (optional)
-├── .env                            # DB credentials (not committed)
+│   ├── 02_tables_audit.sql             # Pre-cleanup inspection queries (read-only)
+│   ├── 03_tables_run.sql               # Destructive cleanup — run after audit
+|   ├── 04_remove_non_games.sql         # Remove software that are not games (optional)
+│   ├── 05_constraints_and_indexes.sql  # PKs, FKs, and indexes
+│   ├── 06_kpi_queries.sql              # Power BI-facing KPI views (optional)
+│   └── 07_views.sql                    # Standalone KPI queries (optional)
+├── .env                                # DB credentials (not committed)
 ├── requirements.txt
 └── README.md
 ```
@@ -46,7 +48,7 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 games.json
     │
     ▼
-load_data.py          — Parses, flattens, cleans, and writes three tables
+01_load_data.py          — Parses, flattens, cleans, and writes three tables
     │
     ▼
 ┌─────────────────────────────────────────┐
@@ -57,19 +59,20 @@ load_data.py          — Parses, flattens, cleans, and writes three tables
 └─────────────────────────────────────────┘
     │
     ▼
-cleanup_audit.sql     — Inspect raw data, review what will be removed
+02_tables_audit.sql                 — Inspect raw data, review what will be removed
     │
     ▼
-cleanup_run.sql       — Remove junk rows, parse dates, prune non-games
+03_tables_clean.sql                 — Remove junk rows, parse dates, prune non-games
+04_remove_non_games (optioanl)
     │
     ▼
-constraints.sql       — Add PKs, FKs, indexes, VACUUM ANALYZE
+05_constraints_and_indexes.sql      — Add PKs, FKs, indexes, VACUUM ANALYZE
     │
     ▼
-views.sql             — Create v_kpi_* views for Power BI
+07_views.sql                        — Create v_kpi_* views for Power BI
     │
     ▼
-Power BI Desktop      — Connect to views, build dashboards
+Power BI Desktop                    — Connect to views, build dashboards
 ```
 
 ---
@@ -118,11 +121,7 @@ pip install -r requirements.txt
 
 > ⚠️ The scripts have strict dependencies. Running them out of order will cause errors. Follow this sequence exactly.
 
-### Step 1 — Load raw data
-
-```bash
-python load_data.py
-```
+### Step 1 — Load raw data (01_load_data.py)
 
 Writes three tables to PostgreSQL: `games`, `tags`, `game_tags`. Drops and recreates them on every run.
 
@@ -130,12 +129,7 @@ Writes three tables to PostgreSQL: `games`, `tags`, `game_tags`. Drops and recre
 
 ---
 
-### Step 2 — Audit the raw data (read-only)
-
-```sql
--- Run in psql or your SQL client
-\i sql/cleanup_audit.sql
-```
+### Step 2 — Audit the raw data (02_tables_audit.sql)
 
 This is a review-only step. It prints row counts, price anomalies, date format samples, and the list of apps flagged as non-games. **No data is modified.** Review the output before proceeding, particularly:
 
@@ -144,11 +138,7 @@ This is a review-only step. It prints row counts, price anomalies, date format s
 
 ---
 
-### Step 3 — Run cleanup
-
-```sql
-\i sql/cleanup_run.sql
-```
+### Step 3 — Run cleanup (03_tables_clean.sql and 04_remove_non_games.sql (optional))
 
 Performs two sequential transactions:
 
@@ -168,11 +158,7 @@ Performs two sequential transactions:
 
 ---
 
-### Step 4 — Apply constraints and indexes
-
-```sql
-\i sql/constraints.sql
-```
+### Step 4 — Apply constraints and indexes (05_constraints_and_indexes.sql)
 
 Adds primary keys, foreign keys with `ON DELETE CASCADE`, and all performance indexes.
 
@@ -180,11 +166,7 @@ Adds primary keys, foreign keys with `ON DELETE CASCADE`, and all performance in
 
 ---
 
-### Step 5 — Create KPI views
-
-```sql
-\i sql/views.sql
-```
+### Step 5 — Create KPI views (07_views.sql)
 
 Creates six `v_kpi_*` views that Power BI connects to directly. Verify they were created:
 
