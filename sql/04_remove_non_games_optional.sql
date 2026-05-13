@@ -1,7 +1,7 @@
 -- transaction 2: delete non-games based on tag patterns identified in tables_audit.sql
 BEGIN;
 
--- removes rows from games and game_tags, but leaves any referenced tags in place 
+-- removes non-game rows from games and game_tags directly, then prunes any orphaned game_tags rows and unreferenced tags below
 -- orphan cleanup at the end of this transaction removes any game_tags rows that reference deleted games, and then any tags that are no longer referenced by any game_tags
 -- gt.votes must match with tables_audit.sql to ensure the same rows are targeted for deletion in both places
 DROP TABLE IF EXISTS non_game_appids;
