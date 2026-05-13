@@ -121,6 +121,7 @@ df_bridge = (df[["appid", "tags"]].copy().assign(tags=lambda d: d["tags"].apply(
 df_bridge[["tag_name", "votes"]] = pd.DataFrame(df_bridge["tags"].tolist(), index=df_bridge.index)
 df_bridge = df_bridge[["appid", "tag_name", "votes"]].copy()
 df_bridge["tag_name"] = df_bridge["tag_name"].str.strip()
+df_bridge.dropna(subset=["tag_name"], inplace=True)
 df_bridge = df_bridge[df_bridge["tag_name"] != ""]
 df_bridge["votes"] = pd.to_numeric(df_bridge["votes"], errors="coerce").fillna(0).astype(int)
 df_bridge.drop_duplicates(subset=["appid", "tag_name"], inplace=True)

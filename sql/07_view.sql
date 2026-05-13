@@ -1,7 +1,6 @@
--- v_kpi_playtime_by_tag
--- Source for KPI 1 bar/scatter chart.
--- No LIMIT — apply in Power BI or the consuming query.
--- No ORDER BY — sort in Power BI.
+-- source for KPI 1 bar/scatter chart
+-- no LIMIT — apply in Power BI or the consuming query
+-- no ORDER BY — sort in Power BI
 CREATE OR REPLACE VIEW v_kpi_playtime_by_tag AS
 SELECT
     t.tag_name,
@@ -25,8 +24,7 @@ GROUP BY t.tag_name
 HAVING COUNT(DISTINCT g.appid) >= 20;
 -- Power BI usage: ORDER BY avg_playtime_hrs DESC, LIMIT 30 (or use Top N filter)
 
--- v_kpi_releases_by_year_tag
--- Source for KPI 3 trend line / stacked bar.
+-- source for KPI 3 trend line / stacked bar
 CREATE OR REPLACE VIEW v_kpi_releases_by_year_tag AS
 SELECT
     EXTRACT(YEAR FROM g.release_date_parsed)::INT                   AS release_year,
@@ -44,12 +42,10 @@ WHERE g.release_date_parsed IS NOT NULL
   AND g.release_date_parsed >= '2000-01-01'
   AND g.release_date_parsed <  CURRENT_DATE
 GROUP BY 1, 2, 3;
--- Power BI usage: filter tag_total_game_count to top 15 (or use a slicer on tag_name).
--- tag_total_game_count is exposed so Power BI can rank/filter tags without a second query.
+-- Power BI usage: filter tag_total_game_count to top 15 (or use a slicer on tag_name)
+-- tag_total_game_count is exposed so Power BI can rank/filter tags without a second query
 
-
--- v_kpi_playtime_by_price
--- Source for KPI 4 column chart.
+-- source for KPI 4 column chart
 CREATE OR REPLACE VIEW v_kpi_playtime_by_price AS
 SELECT
     CASE
@@ -64,7 +60,7 @@ SELECT
         ELSE                        '$60+'
     END                                                             AS price_bracket,
     -- sort_order lets Power BI sort the axis correctly without
-    -- relying on alphabetical ordering of the label strings.
+    -- relying on alphabetical ordering of the label strings
     CASE
         WHEN price_usd IS NULL THEN 0
         WHEN price_usd =  0    THEN 1
@@ -84,11 +80,10 @@ SELECT
 FROM games
 WHERE average_playtime_forever > 0
 GROUP BY 1, 2;
--- Power BI usage: sort axis by sort_order (ascending).
+-- Power BI usage: sort axis by sort_order (ascending)
 
 
--- v_kpi_f2p_vs_paid  (per-tag breakdown — KPI 5B)
--- Source for KPI 5 clustered bar / small multiples.
+-- source for KPI 5 clustered bar / small multiples
 CREATE OR REPLACE VIEW v_kpi_f2p_vs_paid AS
 SELECT
     t.tag_name,
@@ -109,11 +104,9 @@ WHERE g.average_playtime_forever > 0
   AND g.price_usd IS NOT NULL
 GROUP BY 1, 2, 3
 HAVING COUNT(DISTINCT g.appid) >= 10;
--- Power BI usage: filter tag_total_game_count to Top N for readable charts.
+-- Power BI usage: filter tag_total_game_count to Top N for readable charts
 
-
--- v_kpi_f2p_vs_paid_summary  (top-level — KPI 5A)
---
+-- source for KPI 8 horizontal bar
 -- Note: this divides the group's average playtime by the group's average price
 -- (ratio of averages), not the average of per-game (playtime / price) ratios.
 -- Directionally correct for comparison but not a per-game efficiency figure.
@@ -138,8 +131,7 @@ WHERE average_playtime_forever > 0
   AND price_usd IS NOT NULL
 GROUP BY 1;
 
--- v_kpi_review_scores_by_tag
--- Source for KPI 8 horizontal bar (sort by wilson_score).
+-- Source for KPI 8 horizontal bar (sort by wilson_score)
 CREATE OR REPLACE VIEW v_kpi_review_scores_by_tag AS
 WITH tag_reviews AS (
     SELECT
