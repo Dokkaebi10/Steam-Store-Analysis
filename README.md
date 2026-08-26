@@ -26,14 +26,14 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 ├── data/
 │   └── games.json                      # Raw Steam dataset (not committed)
 ├── python/
-|   └── 01_load_data.py                 # ETL: JSON → PostgreSQL
+|   └── 01_load_json.py                 # ETL: JSON → PostgreSQL
 ├── sql/
 │   ├── 02_tables_audit.sql             # Pre-cleanup inspection queries (read-only)
 │   ├── 03_tables_clean.sql               # Destructive cleanup — run after audit
 |   ├── 04_remove_non_games.sql         # Remove software that are not games (optional)
 │   ├── 05_constraints_and_indexes.sql  # PKs, FKs, and indexes
 │   ├── 06_kpi_queries.sql              # Power BI-facing KPI views (optional)
-│   └── 07_views.sql                    # Standalone KPI queries (optional)
+│   └── 07_view.sql                     # Standalone KPI queries (optional)
 ├── .env                                # DB credentials (not committed)
 ├── requirements.txt
 └── README.md
@@ -47,7 +47,7 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 games.json
     │
     ▼
-01_load_data.py                     — Parses, flattens, cleans, and writes three tables
+01_load_json.py                     — Parses, flattens, cleans, and writes three tables
     │
     ▼
 ┌─────────────────────────────────────────┐
@@ -68,7 +68,7 @@ games.json
 05_constraints_and_indexes.sql      — Add PKs, FKs, indexes, VACUUM ANALYZE
     │
     ▼
-07_views.sql                        — Create v_kpi_* views for Power BI
+07_view.sql                         — Create v_kpi_* views for Power BI
     │
     ▼
 Power BI Desktop                    — Connect to views, build dashboards
@@ -122,7 +122,7 @@ pip install -r requirements.txt
 > ⚠️ When you reload `games.json` with updated data, repeat Steps 1–5 in full then click **Refresh** in Power BI Desktop.
 
 
-### Step 1 — Load raw data (01_load_data.py)
+### Step 1 — Load raw data (01_load_json.py)
 
 Writes three tables to PostgreSQL: `games`, `tags`, `game_tags`. Drops and recreates them on every run.
 
@@ -165,7 +165,7 @@ Adds primary keys, foreign keys with `ON DELETE CASCADE`, and all performance in
 
 ---
 
-### Step 5 — Create KPI views (07_views.sql)
+### Step 5 — Create KPI views (07_view.sql)
 
 Creates six `v_kpi_*` views that Power BI connects to directly. Verify they were created:
 
@@ -249,7 +249,7 @@ Python · pandas · SQLAlchemy · PostgreSQL · Power BI · Claude (AI assistant
 ## Troubleshooting
 
 **`column release_date_parsed does not exist`**
-`05_constraints_and_indexes.sql` or `07_views.sql` was run before `tables_clean.sql`. Run `tables_clean.sql` first — it creates this column via `ALTER TABLE`.
+`05_constraints_and_indexes.sql` or `07_view.sql` was run before `tables_clean.sql`. Run `tables_clean.sql` first — it creates this column via `ALTER TABLE`.
 
 **`VACUUM cannot run inside a transaction block`**
 Your SQL client has auto-begin enabled. Run the three `VACUUM ANALYZE` statements at the bottom of `05_constraints_and_indexes.sql` separately in a plain psql session.
@@ -264,4 +264,4 @@ Your `.env` file is missing or one of the five required keys is not set. Check t
 You are likely on a version of Power BI Desktop older than mid-2020. Either update Power BI Desktop (recommended), or install the Npgsql driver from [npgsql.org](https://www.npgsql.org/) as a fallback for legacy versions.
 
 **`v_kpi_*` views missing after re-run**
-`01_load_data.py` drops tables with `CASCADE`, which removes dependent views. Re-run `07_views.sql` to restore them.
+`01_load_json.py` drops tables with `CASCADE`, which removes dependent views. Re-run `07_view.sql` to restore them.

@@ -41,7 +41,7 @@ LIMIT 20;
 
 -- rows that have a non-game tag with >= 5 votes and no game-indicator tags
 -- these will be offered for deletion in tables_clean.sql (behind a comment guard)
--- if any legitimate games appear, adjust the tag lists or the votes threshold in hear AND tables_clean.sql before uncommenting the DELETE blocks
+-- if any legitimate games appear, adjust the tag lists or the votes threshold in here AND tables_clean.sql before uncommenting the DELETE blocks
 DROP TABLE IF EXISTS non_game_appids;
 CREATE TEMP TABLE non_game_appids AS
 SELECT DISTINCT g.appid
