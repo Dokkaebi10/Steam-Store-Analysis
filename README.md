@@ -249,13 +249,13 @@ Python · pandas · SQLAlchemy · PostgreSQL · Power BI · Claude (AI assistant
 ## Troubleshooting
 
 **`column release_date_parsed does not exist`**
-`constraints.sql` or `views.sql` was run before `tables_clean.sql`. Run `tables_clean.sql` first — it creates this column via `ALTER TABLE`.
+`05_constraints_and_indexes.sql` or `07_views.sql` was run before `tables_clean.sql`. Run `tables_clean.sql` first — it creates this column via `ALTER TABLE`.
 
 **`VACUUM cannot run inside a transaction block`**
-Your SQL client has auto-begin enabled. Run the three `VACUUM ANALYZE` statements at the bottom of `constraints.sql` separately in a plain psql session.
+Your SQL client has auto-begin enabled. Run the three `VACUUM ANALYZE` statements at the bottom of `05_constraints_and_indexes.sql` separately in a plain psql session.
 
 **`non_game_appids has N rows — expected ≤ 500`**
-The safety threshold in `cleanup_run.sql` fired. Run `tables_audit.sql` first, review the full non-game list, and either adjust the tag lists or the votes threshold in both files before re-running.
+The safety threshold in `03_tables_clean.sql` fired. Run `02_tables_audit.sql` first, review the full non-game list, and either adjust the tag lists or the votes threshold in both files before re-running.
 
 **`Missing required env vars: [...]`**
 Your `.env` file is missing or one of the five required keys is not set. Check that `.env` exists in the project root and contains all of `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`.
@@ -264,4 +264,4 @@ Your `.env` file is missing or one of the five required keys is not set. Check t
 You are likely on a version of Power BI Desktop older than mid-2020. Either update Power BI Desktop (recommended), or install the Npgsql driver from [npgsql.org](https://www.npgsql.org/) as a fallback for legacy versions.
 
 **`v_kpi_*` views missing after re-run**
-`load_data.py` drops tables with `CASCADE`, which removes dependent views. Re-run `views.sql` to restore them.
+`01_load_data.py` drops tables with `CASCADE`, which removes dependent views. Re-run `07_views.sql` to restore them.
