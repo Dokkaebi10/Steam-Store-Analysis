@@ -4,18 +4,19 @@
 CREATE OR REPLACE VIEW v_kpi_playtime_by_tag AS
 SELECT
     t.tag_name,
-    COUNT(DISTINCT g.appid)                                          AS game_count,
-    ROUND(AVG(g.average_playtime_forever) / 60.0, 1)                AS avg_playtime_hrs,
+    COUNT(DISTINCT g.appid)                                             AS game_count,
+    ROUND(AVG(g.average_playtime_forever) / 60.0, 1)                    AS avg_playtime_hrs,
     ROUND((PERCENTILE_CONT(0.5) WITHIN GROUP
-      (ORDER BY g.average_playtime_forever) / 60.0)::NUMERIC, 1)          AS median_playtime_hrs,
-    ROUND(AVG(g.achievements), 0)                                   AS avg_achievements,
+      (ORDER BY g.average_playtime_forever) / 60.0)::NUMERIC, 1)        AS median_playtime_hrs,
+    ROUND(AVG(g.achievements), 0)                                       AS avg_achievements,
+    ROUND(CORR(g.average_playtime_forever, g.achievements)::NUMERIC, 3) AS playtime_achievements_corr,
     CASE
         WHEN AVG(g.achievements) = 0   THEN 'None'
         WHEN AVG(g.achievements) < 15  THEN 'Low (1–14)'
         WHEN AVG(g.achievements) < 50  THEN 'Mid (15–49)'
         WHEN AVG(g.achievements) < 100 THEN 'High (50–99)'
         ELSE                                'Very High (100+)'
-    END                                                              AS achievement_band
+    END                                                                 AS achievement_band
 FROM games g
 JOIN game_tags gt ON gt.appid = g.appid
 JOIN tags      t  ON t.tag_id = gt.tag_id
@@ -106,7 +107,7 @@ GROUP BY 1, 2, 3
 HAVING COUNT(DISTINCT g.appid) >= 10;
 -- Power BI usage: filter tag_total_game_count to Top N for readable charts
 
--- source for KPI 8 horizontal bar
+-- source for KPI 5A horizontal bar
 -- Note: this divides the group's average playtime by the group's average price
 -- (ratio of averages), not the average of per-game (playtime / price) ratios.
 -- Directionally correct for comparison but not a per-game efficiency figure.

@@ -32,8 +32,8 @@ A data pipeline that loads a Steam games dataset from JSON into PostgreSQL, clea
 │   ├── 03_tables_clean.sql               # Destructive cleanup — run after audit
 |   ├── 04_remove_non_games.sql         # Remove software that are not games (optional)
 │   ├── 05_constraints_and_indexes.sql  # PKs, FKs, and indexes
-│   ├── 06_kpi_queries.sql              # Power BI-facing KPI views (optional)
-│   └── 07_view.sql                     # Standalone KPI queries (optional)
+│   ├── 06_kpi_queries.sql              # Standalone KPI queries (optional)
+│   └── 07_view.sql                     # Power BI-facing KPI views (optional)
 ├── .env                                # DB credentials (not committed)
 ├── requirements.txt
 └── README.md
@@ -254,8 +254,8 @@ Python · pandas · SQLAlchemy · PostgreSQL · Power BI · Claude (AI assistant
 **`VACUUM cannot run inside a transaction block`**
 Your SQL client has auto-begin enabled. Run the three `VACUUM ANALYZE` statements at the bottom of `05_constraints_and_indexes.sql` separately in a plain psql session.
 
-**`non_game_appids has N rows — expected ≤ 500`**
-The safety threshold in `03_tables_clean.sql` fired. Run `02_tables_audit.sql` first, review the full non-game list, and either adjust the tag lists or the votes threshold in both files before re-running.
+**`non_game_appids has N rows — expected ≤ 1000`**
+The safety threshold in `04_remove_non_games.sql` fired. Run `02_tables_audit.sql` first, review the full non-game list, and either adjust the tag lists or the votes threshold in both files before re-running.
 
 **`Missing required env vars: [...]`**
 Your `.env` file is missing or one of the five required keys is not set. Check that `.env` exists in the project root and contains all of `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT`, `DB_NAME`.

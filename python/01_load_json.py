@@ -83,7 +83,7 @@ df["tags"] = df["tags"].apply(lambda x: x if isinstance(x, dict) else {})
 # filtering here avoids writing junk to Postgres and speeds up later SQL cleanup
 before = len(df)
 df.dropna(subset=["name"], inplace=True)
-df = df[~df["name"].str.contains("test|valve test", case=False, na=False)]
+df = df[~df["name"].str.contains(r"\btest\b", case=False, na=False)]
 df = df[~(
     (df["peak_ccu"] == 0) &
     (df["positive"] == 0) &
